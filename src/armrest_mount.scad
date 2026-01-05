@@ -8,7 +8,7 @@ lip_width = 5.0;       // Grip under the armrest
 fit_tolerance = 0.5;   // Extra gap for sliding fit
 
 /* [Ergonomics] */
-tenting_angle = 15;      // 15 degrees tilt (Left/Right)
+tenting_angle = 20;      // 20 degrees tilt (Left/Right)
 is_right_armrest = true; // TRUE = Right Arm
 
 /* [Mount Configuration] */
@@ -24,19 +24,19 @@ taper_back_chamfer = 35.0; // Aggressive taper at the back (35mm)
 taper_front_chamfer = 12.0; // Increased taper at the front (12mm)
 
 /* [Groove Settings] */
-dish_depth = 2.0;       // Depth of the groove
-dish_radius = 75.0;     // Radius of the groove (Curvature across arm)
-dish_offset_x = 38.0;   // Position (Right side)
+dish_depth = -2.0;      // Depth of the groove (negative for convex)
+dish_radius = 65.0;     // Radius of the groove (Curvature across arm)
+dish_offset_x = 40.0;   // Position (Right side)
 dish_pos_z = 15.0;      // Anchor position along the taper
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
-magsafe_slot_thickness = 5.0;
-magsafe_slot_depth = 75.0;
+magsafe_slot_thickness = 6.0;
+magsafe_slot_depth = 74.0;
 
 /* [Preview] */
 preview_context = true;
-$fn = 60;
+$fn = 40;
 
 // -------------------------------------------------
 
@@ -70,7 +70,7 @@ chamfer_right = !is_right_armrest;
 
 // 1. Calculate the Pitch (Slope) of the tapered section
 // We match the angle of the Right Side (where the groove is)
-taper_len = mount_length - magsafe_slot_depth; // 25mm
+taper_len = mount_length - magsafe_slot_depth; // 26mm
 taper_rise_right = h_right_safe - h_right_taper;
 // Pitch angle: Positive Z goes UP, so negative rotation around X
 groove_pitch = atan(taper_rise_right / taper_len);
@@ -160,7 +160,7 @@ difference() {
 // -------------------------------------------------
 
 module constructive_wedge_solid(w, r) {
-  taper_len = mount_length - magsafe_slot_depth; // e.g. 25mm
+  taper_len = mount_length - magsafe_slot_depth; // e.g. 26mm
 
   // Section 1: The Transition (Back -> Slot Start)
   hull() {
@@ -169,7 +169,7 @@ module constructive_wedge_solid(w, r) {
       linear_extrude(0.1)
       wedge_chamfered_profile(w, h_left_taper, h_right_taper, r, taper_back_chamfer);
 
-    // Z=25: Slot Start Profile (High + Small Chamfer)
+    // Z=26: Slot Start Profile (High + Small Chamfer)
     translate([0,0, taper_len - 2*r])
       linear_extrude(0.1)
       wedge_chamfered_profile(w, h_left_safe, h_right_safe, r, taper_front_chamfer);
