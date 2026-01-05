@@ -9,7 +9,7 @@ fit_tolerance = 0.5;   // Extra gap for sliding fit
 
 /* [Ergonomics] */
 tenting_angle = 15;      // 15 degrees tilt (Left/Right)
-is_right_armrest = true; // TRUE = Right Arm (Left=High, Right=Low)
+is_right_armrest = true; // TRUE = Right Arm
 
 /* [Mount Configuration] */
 wall_thickness = 4;     // Solid walls
@@ -25,12 +25,12 @@ dish_offset_x = 38.0;   // Positioned on the lower side
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
-magsafe_slot_thickness = 5.0; // Increased to 5mm for rubber feet
+magsafe_slot_thickness = 5.0; // Slot thickness
 magsafe_slot_depth = 75.0;
 
 /* [Preview] */
 preview_context = true;
-$fn = 40; // Reduced slightly for faster Minkowski preview
+$fn = 60;
 
 // -------------------------------------------------
 
@@ -71,11 +71,12 @@ difference() {
   minkowski() {
     union() {
       // A. Clamp Base Solid (Outer shell only)
-      linear_extrude(height = mount_length - 2*rounding_r) // Shrink Z to account for expansion
+      linear_extrude(height = mount_length - 2*rounding_r)
         translate([0,0])
-        clamp_outer_profile(rounding_r); // Shrink XY profile to account for expansion
+        clamp_outer_profile(rounding_r);
 
       // B. Wedge Solid
+      // Placed on top of the clamp
       translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
         linear_extrude(height = mount_length - 2*rounding_r)
           wedge_profile_shrunk(rotation_val, block_width, rounding_r);
@@ -87,7 +88,6 @@ difference() {
   // 2. NEGATIVE CUTS (Performed AFTER rounding to maintain precision)
 
   // A. The Armrest Channel (Inner Void)
-  // Must be long enough to cut through the rounded ends
   translate([0, 0, -5])
     linear_extrude(height = mount_length + 20)
       clamp_inner_cut_profile();
@@ -112,30 +112,29 @@ difference() {
 // MODULES
 // -------------------------------------------------
 
-// 1. Outer Shell Profile (Shrunk by r to maintain size after Minkowski)
+// 1. Outer Shell Profile (Shrunk by r)
 module clamp_outer_profile(r) {
   w_outer = arm_width + (wall_thickness * 2) + fit_tolerance - 2*r;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance - 2*r;
 
-  // Shifted back to 0,0 center relative to the grown object
-  // Note: Minkowski adds 'r' in all directions.
   translate([-w_outer/2, -h_outer/2])
     square([w_outer, h_outer]);
 }
 
-// 2. Wedge Profile (Shrunk)
+// 2. Wedge Profile (Shrunk & Extended)
 module wedge_profile_shrunk(angle, w, r) {
-  // We simply offset the polygon inward by r
+  // We offset inward by r
   offset(r = -r)
   polygon(points=[
-    [-w/2, 0],
-    [w/2, 0],
+    // Extended bottom to -5mm to ensure it fuses deep into the clamp base
+    [-w/2, -5],
+    [w/2, -5],
     [w/2, h_right_safe],
     [-w/2, h_left_safe]
   ]);
 }
 
-// 3. The Cutting Profile (The Void) - Exact Dimensions
+// 3. The Cutting Profile (The Void)
 module clamp_inner_cut_profile() {
   w_outer = arm_width + (wall_thickness * 2) + fit_tolerance;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
@@ -148,7 +147,7 @@ module clamp_inner_cut_profile() {
 
   // The bottom gap
   gap_width = w_inner - (2 * lip_width);
-  cut_height = wall_thickness + 10; // Tall enough to cut through bottom wall
+  cut_height = wall_thickness + 10;
 
   translate([-gap_width/2, -h_outer/2 - 5])
     square([gap_width, cut_height]);
