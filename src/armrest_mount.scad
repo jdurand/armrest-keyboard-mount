@@ -20,8 +20,8 @@ bottom_wall_slot = 4.0; // Floor thickness below slot
 /* [Comfort & Aesthetics] */
 rounding_r = 1.5;       // 1.5mm global rounding radius
 back_edge_round_r = 5.0; // Roundover for the very back edge
-taper_back_chamfer = 25.0; // Large taper at the back (Comfort)
-taper_front_chamfer = 5.0; // Small taper at the front (Slot safety)
+taper_back_chamfer = 35.0; // Aggressive taper at the back (35mm)
+taper_front_chamfer = 12.0; // Increased taper at the front (12mm) - Reduces bulk
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
@@ -54,7 +54,7 @@ h_right_safe = is_right_armrest ? h_low : h_high;
 
 // Taper Geometry (Back Section)
 // Low profile at the back
-h_taper_base = 6;
+h_taper_base = 5; // Lowered to 5mm for minimal profile
 h_left_taper = h_taper_base;
 h_right_taper = h_taper_base;
 
