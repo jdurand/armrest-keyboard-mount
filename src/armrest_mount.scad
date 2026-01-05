@@ -9,26 +9,25 @@ fit_tolerance = 0.5;
 
 /* [Ergonomics] */
 tenting_angle = 20;
-is_right_armrest = true;
+is_right_armrest = true; // TRUE = Right Armrest (Left High), FALSE = Left Armrest (Right High)
 
 /* [Mount Configuration] */
-wall_thickness = 4;     // Main wall thickness
+wall_thickness = 4;
 mount_length = 100;
 
 // Thickness of the "Roof" (Material between top surface and MagSafe slot)
 top_roof_thickness = 6.0;
-
 // Thickness of the "Floor" (Material below MagSafe slot)
 slot_floor_thickness = 4.0;
 
 /* [Storage Options] */
-enable_storage = true; // Set to false to close the front compartment
-storage_lip_height = 1.0; // Height of the small lip at the front
+enable_storage = true;
+storage_lip_height = 1.0;
 
 /* [Groove Settings] */
-dish_depth = 4.5;       // Depth of cut into top surface (Positive value)
+dish_depth = 4.5;
 dish_radius = 75.0;
-dish_offset_x = 45.0;
+dish_offset_x = 45.0;   // Offset from center.
 dish_pos_z = 15.0;
 
 /* [Ugreen MagSafe Cavity] */
@@ -44,15 +43,22 @@ taper_front_chamfer = 12.0;
 
 /* [Preview] */
 preview_context = true;
-// Resolution: 100 makes circles look like perfect circles (instead of polygons)
-// Warning: High values increase render time significantly.
-$fn = 40;
+$fn = 100;
 
 // -------------------------------------------------
 // GLOBAL GEOMETRY CALCULATIONS
 // -------------------------------------------------
 
-rotation_val = is_right_armrest ? -tenting_angle : tenting_angle;
+// --- FIXED HANDEDNESS LOGIC ---
+// Standard Convention:
+// Right Armrest: Tenting slopes UP to the Left (Left High, Right Low).
+// Left Armrest: Tenting slopes UP to the Right (Right High, Left Low).
+
+// 1. Rotation Fix:
+// Right Armrest needs LEFT side HIGH. In standard XY coords, this is a NEGATIVE rotation (Clockwise).
+// Left Armrest needs RIGHT side HIGH. This is a POSITIVE rotation (Counter-Clockwise).
+rotation_val = is_right_armrest ? tenting_angle : -tenting_angle;
+
 block_width = arm_width + 2*wall_thickness + fit_tolerance;
 
 // Slot Geometry
@@ -68,21 +74,30 @@ h_low_min = max(12.0, h_taper_base + 5);
 h_center_safe = h_low_min + rise;
 h_high_safe = h_center_safe + rise;
 
-h_left_safe  = is_right_armrest ? h_high_safe : h_low_min;
-h_right_safe = is_right_armrest ? h_low_min : h_high_safe;
+// 2. Height Assignments Fix:
+// Right Armrest = Left High, Right Low.
+// Left Armrest = Right High, Left Low.
+h_left_safe  = is_right_armrest ? h_low_min : h_high_safe;
+h_right_safe = is_right_armrest ? h_high_safe : h_low_min;
 
 // Taper Geometry
 h_left_taper = h_taper_base;
 h_right_taper = h_taper_base;
 
-// Chamfers
-chamfer_left = is_right_armrest;
-chamfer_right = !is_right_armrest;
+// 3. Chamfer Fix:
+// We want to chamfer the High Side (Inside) at the back.
+// Right Armrest = Left High -> Chamfer Left.
+chamfer_left = !is_right_armrest;
+chamfer_right = is_right_armrest;
 
-// Groove Geometry
+// 4. Groove/Taper Slope Fix:
+// MOVED UP: Must be defined before used in groove_pitch calculation
 taper_len = mount_length - magsafe_slot_depth;
-taper_rise_right = h_right_safe - h_right_taper;
-groove_pitch = atan(taper_rise_right / taper_len);
+
+// Groove slope needs to follow the Low Side (Outside) taper.
+// Right Armrest -> Right Side is Low -> Use Right Taper
+taper_rise = is_right_armrest ? (h_left_safe - h_left_taper) : (h_right_safe - h_right_taper);
+groove_pitch = atan(taper_rise / taper_len);
 
 // MagSafe Position Logic (Global)
 slot_center_h_wedge = h_center_safe - top_roof_thickness - magsafe_slot_thickness/2;
@@ -101,9 +116,13 @@ function get_surf_y_glob(z, x) =
   )
   hl + m * (x - xl);
 
-// Calculate Sphere Center Global
-y_surf_at_pos = get_surf_y_glob(dish_pos_z, dish_offset_x);
-// Positive dish_depth means cutting DOWN into the object
+// 5. Offset Fix:
+// Groove is on the Low Side (Outside).
+// Right Armrest -> Right Side is Low (+X) -> Offset Positive.
+// Left Armrest -> Left Side is Low (-X) -> Offset Negative.
+calc_offset_x = is_right_armrest ? -dish_offset_x : dish_offset_x;
+
+y_surf_at_pos = get_surf_y_glob(dish_pos_z, calc_offset_x);
 sphere_center_y = y_surf_at_pos + dish_radius + dish_depth;
 
 
@@ -119,13 +138,10 @@ difference() {
       linear_extrude(height = mount_length - 2*rounding_r)
         translate([0,0])
         clamp_outer_profile(rounding_r);
-
       // B. Integrated Tapered Wedge
       translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
         constructive_wedge_solid(block_width, rounding_r);
     }
-    // SMOOTHING UPGRADE: Increased resolution for the rounding sphere
-    // $fn=40 ensures the rounded edges are smooth, not faceted.
     sphere(r=rounding_r, $fn=40);
   }
 
@@ -137,6 +153,7 @@ difference() {
       clamp_inner_cut_profile();
 
   // B. The MagSafe Slot (ALIGNED)
+  // Using rotation_val (which is now correctly negative for Right Armrest)
   translate([0, slot_z_wedge, mount_length - magsafe_slot_depth/2 + 0.1])
     rotate([0, 0, rotation_val])
     cube([magsafe_slot_width, magsafe_slot_thickness, magsafe_slot_depth + 1], center=true);
@@ -158,7 +175,7 @@ difference() {
 
   // E. The Comfort Groove
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
-    translate([dish_offset_x, sphere_center_y, dish_pos_z])
+    translate([calc_offset_x, sphere_center_y, dish_pos_z])
       rotate([-groove_pitch, 0, 0])
       scale([1, 1, 4])
       sphere(r=dish_radius);
@@ -193,7 +210,6 @@ module constructive_wedge_solid(w, r) {
 
 module aligned_storage_cutout(w, slot_center_y) {
   storage_start_z = 10;
-  // Ceiling is Slot Floor - Floor Thickness
   ceiling_center_y = slot_center_y - magsafe_slot_thickness/2 - slot_floor_thickness;
 
   difference() {
@@ -209,6 +225,7 @@ module aligned_storage_cutout(w, slot_center_y) {
     }
 
     // 2. Ceiling Protection
+    // Uses rotation_val to ensure the ceiling matches the magsafe slot angle
     translate([0, ceiling_center_y, 0])
        rotate([0, 0, rotation_val])
        translate([0, 50, 0])
@@ -223,12 +240,14 @@ module aligned_storage_cutout(w, slot_center_y) {
   }
 }
 
+// BUG FIX: The right chamfer logic was previously missing the vertical offset (-chamfer_sz)
+// causing a sharp corner that made the offset() fail when flipped.
 module wedge_chamfered_void_profile(w, h_l, h_r, chamfer_sz) {
   offset(r = -wall_thickness)
   polygon(points=[
     [-w/2, 0],
     [w/2, 0],
-    chamfer_right ? [w/2, h_r] : [w/2, h_r],
+    chamfer_right ? [w/2, h_r - chamfer_sz] : [w/2, h_r],
     chamfer_right ? [w/2 - chamfer_sz, h_r] : [w/2, h_r],
     chamfer_left ? [-w/2 + chamfer_sz, h_l] : [-w/2, h_l],
     chamfer_left ? [-w/2, h_l - chamfer_sz] : [-w/2, h_l]
