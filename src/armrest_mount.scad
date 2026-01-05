@@ -23,11 +23,11 @@ back_edge_round_r = 5.0; // Roundover for the very back edge
 taper_back_chamfer = 35.0; // Aggressive taper at the back (35mm)
 taper_front_chamfer = 12.0; // Increased taper at the front (12mm)
 
-/* [Dish Settings] */
-dish_depth = 2.0;       // Depth of the scoop
-dish_radius = 75.0;     // Radius of the scoop
+/* [Groove Settings] */
+dish_depth = 2.0;       // Depth of the groove
+dish_radius = 75.0;     // Radius of the groove (Curvature across arm)
 dish_offset_x = 38.0;   // Position (Right side)
-dish_pos_z = 15.0;      // Position along the length (from back)
+dish_pos_z = 15.0;      // Anchor position along the taper
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
@@ -66,34 +66,33 @@ h_right_taper = h_taper_base;
 chamfer_left = is_right_armrest;
 chamfer_right = !is_right_armrest;
 
-// --- DISH HEIGHT CALCULATION ---
-// We need to find the exact Y height of the surface at the dish position (X, Z)
-// to ensure the sphere cuts exactly 'dish_depth' deep.
+// --- GROOVE GEOMETRY CALCULATIONS ---
 
-// 1. Interpolate profiles at dish_pos_z
+// 1. Calculate the Pitch (Slope) of the tapered section
+// We match the angle of the Right Side (where the groove is)
 taper_len = mount_length - magsafe_slot_depth; // 25mm
-ratio = min(1, max(0, dish_pos_z / taper_len));
+taper_rise_right = h_right_safe - h_right_taper;
+// Pitch angle: Positive Z goes UP, so negative rotation around X
+groove_pitch = atan(taper_rise_right / taper_len);
 
+// 2. Interpolate height at anchor point (dish_pos_z)
+ratio = min(1, max(0, dish_pos_z / taper_len));
 h_l_at_z = h_left_taper + (h_left_safe - h_left_taper) * ratio;
 h_r_at_z = h_right_taper + (h_right_safe - h_right_taper) * ratio;
 chamfer_at_z = taper_back_chamfer + (taper_front_chamfer - taper_back_chamfer) * ratio;
 
-// 2. Define the top surface line at Z
-// Left Point: x = -w/2 + chamfer (if chamfer left), y = h_l
-// Right Point: x = w/2 (if no chamfer right), y = h_r
-// Note: We assume Right Armrest -> Chamfer Left, Right is full.
+// 3. Surface Height Calculation
 x_left_node = -block_width/2 + (chamfer_left ? chamfer_at_z : 0);
 y_left_node = h_l_at_z;
 x_right_node = block_width/2 - (chamfer_right ? chamfer_at_z : 0);
 y_right_node = h_r_at_z;
 
-// 3. Calculate Surface Y at dish_offset_x
 run = x_right_node - x_left_node;
 slope = (y_right_node - y_left_node) / run;
 dist_from_left = dish_offset_x - x_left_node;
 surface_y_at_dish = y_left_node + slope * dist_from_left;
 
-// 4. Sphere Center Y
+// 4. Center Calculation
 sphere_center_y = surface_y_at_dish + dish_radius - dish_depth;
 
 
@@ -145,10 +144,13 @@ difference() {
     rotate([0, 90, 0])
     cylinder(r=back_edge_round_r, h=block_width*2, center=true);
 
-  // F. The Comfort Dish (Restored)
+  // F. The Comfort Groove (Cylindrical Shape)
+  // We use a Scaled Sphere (Ellipsoid) to create a gentle cylindrical channel
   // Positioned relative to the wedge top surface
-  translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0]) // Shift to wedge frame
+  translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
     translate([dish_offset_x, sphere_center_y, dish_pos_z])
+      rotate([-groove_pitch, 0, 0]) // Match the ramp slope
+      scale([1, 1, 4]) // Stretch into a long groove (Ratio 4:1)
       sphere(r=dish_radius);
 }
 
