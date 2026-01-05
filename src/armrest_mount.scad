@@ -17,15 +17,15 @@ mount_length = 100;     // Total length
 top_wall_min = 6.0;     // Roof thickness
 bottom_wall_slot = 4.0; // Floor thickness below slot
 
-/* [Comfort Settings] */
-rounding_r = 1.5;       // 1.5mm global rounding radius (Softens all edges)
-dish_depth = 2.0;       // Visible depth
-dish_radius = 75.0;     // Gentle curve
-dish_offset_x = 38.0;   // Positioned on the lower side
+/* [Comfort & Aesthetics] */
+rounding_r = 1.5;       // 1.5mm global rounding radius
+back_edge_round_r = 5.0; // Roundover for the very back edge
+taper_back_chamfer = 25.0; // Large taper at the back (Comfort)
+taper_front_chamfer = 5.0; // Small taper at the front (Slot safety)
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
-magsafe_slot_thickness = 5.0; // Slot thickness
+magsafe_slot_thickness = 5.0;
 magsafe_slot_depth = 75.0;
 
 /* [Preview] */
@@ -38,73 +38,82 @@ $fn = 60;
 rotation_val = is_right_armrest ? -tenting_angle : tenting_angle;
 block_width = arm_width + 2*wall_thickness + fit_tolerance;
 
-// Height Geometry (Slot)
+// Slot Geometry
 slot_half_w = magsafe_slot_width / 2;
 slot_half_t = magsafe_slot_thickness / 2;
 slot_bbox_h = (magsafe_slot_width * abs(sin(rotation_val))) + (magsafe_slot_thickness * abs(cos(rotation_val)));
-
-// Center height
 center_h = bottom_wall_slot + slot_bbox_h/2 + top_wall_min;
 
-// Wedge Heights
+// Wedge Heights (Front/Slot Section)
+// We calculate the full trapezoid heights first
 rise = (block_width/2) * tan(abs(rotation_val));
 h_high = center_h + rise + 5;
 h_low  = center_h - rise + 5;
-h_left  = is_right_armrest ? h_high : h_low;
-h_right = is_right_armrest ? h_low : h_high;
-h_left_safe = max(h_left, 1);
-h_right_safe = max(h_right, 1);
+h_left_safe  = is_right_armrest ? h_high : h_low;
+h_right_safe = is_right_armrest ? h_low : h_high;
 
-// Dish Height Calculation
-slope_m = (h_right_safe - h_left_safe) / block_width;
-surface_y_at_dish = h_left_safe + slope_m * (dish_offset_x + block_width/2);
-sphere_y = surface_y_at_dish + dish_radius - dish_depth;
+// Taper Geometry (Back Section)
+// Low profile at the back
+h_taper_base = 6;
+h_left_taper = h_taper_base;
+h_right_taper = h_taper_base;
 
+// Taper/Chamfer Direction
+// Right Arm -> Left is High/Inside -> Chamfer Left Corner
+chamfer_left = is_right_armrest;
+chamfer_right = !is_right_armrest;
 
 // -------------------------------------------------
 // MAIN ASSEMBLY
 // -------------------------------------------------
 
 difference() {
-  // 1. POSITIVE BODY (The Solid Block)
-  // We apply Minkowski here to round ALL outer edges (Sides + Front + Back)
+  // 1. POSITIVE BODY (Minkowski Rounded)
   minkowski() {
     union() {
-      // A. Clamp Base Solid (Outer shell only)
+      // A. Clamp Base Solid
       linear_extrude(height = mount_length - 2*rounding_r)
         translate([0,0])
         clamp_outer_profile(rounding_r);
 
-      // B. Wedge Solid
-      // Placed on top of the clamp
+      // B. Integrated Tapered Wedge
+      // Uses hull() to smoothly transition profiles. No cuts.
       translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
-        linear_extrude(height = mount_length - 2*rounding_r)
-          wedge_profile_shrunk(rotation_val, block_width, rounding_r);
+        constructive_wedge_solid(block_width, rounding_r);
     }
     // The Rounding Tool
     sphere(r=rounding_r, $fn=12);
   }
 
-  // 2. NEGATIVE CUTS (Performed AFTER rounding to maintain precision)
+  // 2. NEGATIVE CUTS
 
-  // A. The Armrest Channel (Inner Void)
+  // A. The Armrest Channel
   translate([0, 0, -5])
     linear_extrude(height = mount_length + 20)
       clamp_inner_cut_profile();
 
-  // B. The Comfort Dish
-  translate([dish_offset_x, sphere_y, 0])
-    sphere(r=dish_radius);
-
-  // C. The MagSafe Slot
+  // B. The MagSafe Slot
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2 + bottom_wall_slot + (slot_bbox_h/2), mount_length - magsafe_slot_depth/2 + 0.1])
     rotate([0, 0, rotation_val])
     cube([magsafe_slot_width, magsafe_slot_thickness, magsafe_slot_depth + 1], center=true);
 
-  // D. Front Opening Cleanup
+  // C. Front Opening Cleanup
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2 + bottom_wall_slot + (slot_bbox_h/2), mount_length + 5])
     rotate([0, 0, rotation_val])
     cube([magsafe_slot_width, magsafe_slot_thickness, 20], center=true);
+
+  // D. "Waterfall" Back Edge Roundover (Z=0)
+  // Rounds the entry point for the arm
+  translate([0, arm_thickness*2, 0])
+    rotate([0, 90, 0])
+    translate([0, 0, -block_width])
+      cylinder(r=back_edge_round_r, h=block_width*2);
+
+  // E. Top-Back Smooth Roundover
+  // Rounds the top edge of the taper
+  translate([0, arm_thickness + wall_thickness*2 + h_taper_base + back_edge_round_r, 0])
+    rotate([0, 90, 0])
+    cylinder(r=back_edge_round_r, h=block_width*2, center=true);
 }
 
 
@@ -112,40 +121,65 @@ difference() {
 // MODULES
 // -------------------------------------------------
 
-// 1. Outer Shell Profile (Shrunk by r)
+module constructive_wedge_solid(w, r) {
+  taper_len = mount_length - magsafe_slot_depth; // e.g. 25mm
+
+  // Section 1: The Transition (Back -> Slot Start)
+  hull() {
+    // Z=0: Back Profile (Low + Large Chamfer)
+    translate([0,0,0])
+      linear_extrude(0.1)
+      wedge_chamfered_profile(w, h_left_taper, h_right_taper, r, taper_back_chamfer);
+
+    // Z=25: Slot Start Profile (High + Small Chamfer)
+    translate([0,0, taper_len - 2*r])
+      linear_extrude(0.1)
+      wedge_chamfered_profile(w, h_left_safe, h_right_safe, r, taper_front_chamfer);
+  }
+
+  // Section 2: The Main Slot Body (Slot Start -> Front)
+  // Continuous extrusion of the "Slot Start" profile
+  translate([0,0, taper_len - 2*r])
+    linear_extrude(height = magsafe_slot_depth)
+    wedge_chamfered_profile(w, h_left_safe, h_right_safe, r, taper_front_chamfer);
+}
+
+// Custom Profile that clips the "Inside" corner
+module wedge_chamfered_profile(w, h_l, h_r, r, chamfer_sz) {
+  offset(r = -r)
+  polygon(points=[
+    // Bottom Base (Extended -5mm for fusion)
+    [-w/2, -5],
+    [w/2, -5],
+
+    // Right Side
+    // If chamfer_right is true, we clip the Top-Right corner
+    chamfer_right ? [w/2, h_r - chamfer_sz] : [w/2, h_r],
+    chamfer_right ? [w/2 - chamfer_sz, h_r] : [w/2, h_r], // Duplicate if no chamfer (harmless)
+
+    // Left Side
+    // If chamfer_left is true, we clip the Top-Left corner
+    chamfer_left ? [-w/2 + chamfer_sz, h_l] : [-w/2, h_l],
+    chamfer_left ? [-w/2, h_l - chamfer_sz] : [-w/2, h_l]
+  ]);
+}
+
 module clamp_outer_profile(r) {
   w_outer = arm_width + (wall_thickness * 2) + fit_tolerance - 2*r;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance - 2*r;
-
   translate([-w_outer/2, -h_outer/2])
     square([w_outer, h_outer]);
 }
 
-// 2. Wedge Profile (Shrunk & Extended)
-module wedge_profile_shrunk(angle, w, r) {
-  // We offset inward by r
-  offset(r = -r)
-  polygon(points=[
-    // Extended bottom to -5mm to ensure it fuses deep into the clamp base
-    [-w/2, -5],
-    [w/2, -5],
-    [w/2, h_right_safe],
-    [-w/2, h_left_safe]
-  ]);
-}
-
-// 3. The Cutting Profile (The Void)
 module clamp_inner_cut_profile() {
   w_outer = arm_width + (wall_thickness * 2) + fit_tolerance;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
   w_inner = arm_width + fit_tolerance;
   h_inner = arm_thickness + fit_tolerance;
 
-  // The inner box
   translate([-w_inner/2, -h_inner/2])
     square([w_inner, h_inner]);
 
-  // The bottom gap
   gap_width = w_inner - (2 * lip_width);
   cut_height = wall_thickness + 10;
 
@@ -157,12 +191,10 @@ module clamp_inner_cut_profile() {
 // PREVIEW
 // -------------------------------------------------
 if (preview_context) {
-  // Ghost Armrest
   %color("Silver", 0.4)
   translate([-(arm_width)/2, -(arm_thickness)/2, -10])
     cube([arm_width, arm_thickness, mount_length + 20]);
 
-  // Ghost MagSafe Insert (Red)
   %color("FireBrick", 0.8)
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2 + bottom_wall_slot + (slot_bbox_h/2), mount_length - magsafe_slot_depth/2])
     rotate([0, 0, rotation_val])
