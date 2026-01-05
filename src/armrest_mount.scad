@@ -18,19 +18,19 @@ top_wall_min = 6.0;     // Roof thickness
 bottom_wall_slot = 4.0; // Floor thickness below slot
 
 /* [Comfort Settings] */
-edge_radius = 1.0;      // 1mm Rounding
+rounding_r = 1.5;       // 1.5mm global rounding radius (Softens all edges)
 dish_depth = 2.0;       // Visible depth
 dish_radius = 75.0;     // Gentle curve
-dish_offset_x = 38.0;   // Moved to the LOWER (External) part of the wedge
+dish_offset_x = 38.0;   // Positioned on the lower side
 
 /* [Ugreen MagSafe Cavity] */
 magsafe_slot_width = 85.2;
-magsafe_slot_thickness = 5;
-magsafe_slot_depth = 75.0; // Starts 25mm from the back
+magsafe_slot_thickness = 5.0; // Increased to 5mm for rubber feet
+magsafe_slot_depth = 75.0;
 
 /* [Preview] */
 preview_context = true;
-$fn = 60;
+$fn = 40; // Reduced slightly for faster Minkowski preview
 
 // -------------------------------------------------
 
@@ -38,101 +38,120 @@ $fn = 60;
 rotation_val = is_right_armrest ? -tenting_angle : tenting_angle;
 block_width = arm_width + 2*wall_thickness + fit_tolerance;
 
-// Height Geometry
+// Height Geometry (Slot)
 slot_half_w = magsafe_slot_width / 2;
 slot_half_t = magsafe_slot_thickness / 2;
 slot_bbox_h = (magsafe_slot_width * abs(sin(rotation_val))) + (magsafe_slot_thickness * abs(cos(rotation_val)));
 
-// Center height relative to the wedge base (at X=0)
+// Center height
 center_h = bottom_wall_slot + slot_bbox_h/2 + top_wall_min;
 
-// Calculate Corner Heights
-// rise is the vertical difference from center to edge
+// Wedge Heights
 rise = (block_width/2) * tan(abs(rotation_val));
 h_high = center_h + rise + 5;
 h_low  = center_h - rise + 5;
-
-// Assign based on side (Right Arm = Left High, Right Low)
 h_left  = is_right_armrest ? h_high : h_low;
 h_right = is_right_armrest ? h_low : h_high;
-
 h_left_safe = max(h_left, 1);
 h_right_safe = max(h_right, 1);
 
-// --- FIX: ROBUST SURFACE HEIGHT CALCULATION ---
-// We calculate the exact Y height of the surface at dish_offset_x
-// Equation of line between (-w/2, h_left) and (w/2, h_right)
+// Dish Height Calculation
 slope_m = (h_right_safe - h_left_safe) / block_width;
 surface_y_at_dish = h_left_safe + slope_m * (dish_offset_x + block_width/2);
-
-// Sphere center Y
 sphere_y = surface_y_at_dish + dish_radius - dish_depth;
 
+
+// -------------------------------------------------
+// MAIN ASSEMBLY
+// -------------------------------------------------
+
 difference() {
-  union() {
-    // 1. The C-Clamp Base
-    linear_extrude(height = mount_length)
-      offset(r = edge_radius) offset(delta = -edge_radius)
-      clamp_profile();
+  // 1. POSITIVE BODY (The Solid Block)
+  // We apply Minkowski here to round ALL outer edges (Sides + Front + Back)
+  minkowski() {
+    union() {
+      // A. Clamp Base Solid (Outer shell only)
+      linear_extrude(height = mount_length - 2*rounding_r) // Shrink Z to account for expansion
+        translate([0,0])
+        clamp_outer_profile(rounding_r); // Shrink XY profile to account for expansion
 
-    // 2. The Angled Wedge
-    translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
-      difference() {
-        // Main Block
-        linear_extrude(height = mount_length)
-          offset(r = edge_radius) offset(delta = -edge_radius)
-          wedge_profile(rotation_val, block_width);
-
-        // 3. The "Comfort Dish" (Fixed)
-        // Positioned on the lower external side
-        translate([dish_offset_x, sphere_y, 0])
-          sphere(r=dish_radius);
-      }
+      // B. Wedge Solid
+      translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
+        linear_extrude(height = mount_length - 2*rounding_r)
+          wedge_profile_shrunk(rotation_val, block_width, rounding_r);
+    }
+    // The Rounding Tool
+    sphere(r=rounding_r, $fn=12);
   }
 
-  // 4. The Angled MagSafe Slot
+  // 2. NEGATIVE CUTS (Performed AFTER rounding to maintain precision)
+
+  // A. The Armrest Channel (Inner Void)
+  // Must be long enough to cut through the rounded ends
+  translate([0, 0, -5])
+    linear_extrude(height = mount_length + 20)
+      clamp_inner_cut_profile();
+
+  // B. The Comfort Dish
+  translate([dish_offset_x, sphere_y, 0])
+    sphere(r=dish_radius);
+
+  // C. The MagSafe Slot
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2 + bottom_wall_slot + (slot_bbox_h/2), mount_length - magsafe_slot_depth/2 + 0.1])
     rotate([0, 0, rotation_val])
     cube([magsafe_slot_width, magsafe_slot_thickness, magsafe_slot_depth + 1], center=true);
 
-  // 5. Front Opening Cleanup
+  // D. Front Opening Cleanup
   translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2 + bottom_wall_slot + (slot_bbox_h/2), mount_length + 5])
     rotate([0, 0, rotation_val])
     cube([magsafe_slot_width, magsafe_slot_thickness, 20], center=true);
 }
 
+
 // -------------------------------------------------
 // MODULES
 // -------------------------------------------------
 
-module clamp_profile() {
-  w_outer = arm_width + (wall_thickness * 2) + fit_tolerance;
-  h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
-  w_inner = arm_width + fit_tolerance;
-  h_inner = arm_thickness + fit_tolerance;
+// 1. Outer Shell Profile (Shrunk by r to maintain size after Minkowski)
+module clamp_outer_profile(r) {
+  w_outer = arm_width + (wall_thickness * 2) + fit_tolerance - 2*r;
+  h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance - 2*r;
 
-  difference() {
-    translate([-w_outer/2, -h_outer/2])
-      square([w_outer, h_outer]);
-
-    translate([-w_inner/2, -h_inner/2])
-      square([w_inner, h_inner]);
-
-    gap_width = w_inner - (2 * lip_width);
-    cut_height = wall_thickness + 5;
-
-    translate([-gap_width/2, -h_outer/2 - 1])
-      square([gap_width, cut_height]);
-  }
+  // Shifted back to 0,0 center relative to the grown object
+  // Note: Minkowski adds 'r' in all directions.
+  translate([-w_outer/2, -h_outer/2])
+    square([w_outer, h_outer]);
 }
 
-module wedge_profile(angle, w) {
+// 2. Wedge Profile (Shrunk)
+module wedge_profile_shrunk(angle, w, r) {
+  // We simply offset the polygon inward by r
+  offset(r = -r)
   polygon(points=[
     [-w/2, 0],
     [w/2, 0],
     [w/2, h_right_safe],
     [-w/2, h_left_safe]
   ]);
+}
+
+// 3. The Cutting Profile (The Void) - Exact Dimensions
+module clamp_inner_cut_profile() {
+  w_outer = arm_width + (wall_thickness * 2) + fit_tolerance;
+  h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
+  w_inner = arm_width + fit_tolerance;
+  h_inner = arm_thickness + fit_tolerance;
+
+  // The inner box
+  translate([-w_inner/2, -h_inner/2])
+    square([w_inner, h_inner]);
+
+  // The bottom gap
+  gap_width = w_inner - (2 * lip_width);
+  cut_height = wall_thickness + 10; // Tall enough to cut through bottom wall
+
+  translate([-gap_width/2, -h_outer/2 - 5])
+    square([gap_width, cut_height]);
 }
 
 // -------------------------------------------------
