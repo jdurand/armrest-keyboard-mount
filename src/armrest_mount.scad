@@ -26,9 +26,9 @@ enable_storage = true; // Set to false to close the front compartment
 storage_lip_height = 1.0; // Height of the small lip at the front
 
 /* [Groove Settings] */
-dish_depth = 2.5;       // Depth of cut into top surface
+dish_depth = 4.5;       // Depth of cut into top surface (Positive value)
 dish_radius = 75.0;
-dish_offset_x = 46.0;
+dish_offset_x = 45.0;
 dish_pos_z = 15.0;
 
 /* [Ugreen MagSafe Cavity] */
@@ -44,6 +44,8 @@ taper_front_chamfer = 12.0;
 
 /* [Preview] */
 preview_context = true;
+// Resolution: 100 makes circles look like perfect circles (instead of polygons)
+// Warning: High values increase render time significantly.
 $fn = 40;
 
 // -------------------------------------------------
@@ -60,7 +62,7 @@ slot_bbox_h = (magsafe_slot_width * abs(sin(rotation_val))) + (magsafe_slot_thic
 
 // Wedge Heights
 rise = (block_width/2) * tan(abs(rotation_val));
-h_taper_base = 5.0;
+h_taper_base = 3.0;
 h_low_min = max(12.0, h_taper_base + 5);
 
 h_center_safe = h_low_min + rise;
@@ -101,7 +103,7 @@ function get_surf_y_glob(z, x) =
 
 // Calculate Sphere Center Global
 y_surf_at_pos = get_surf_y_glob(dish_pos_z, dish_offset_x);
-// Reverted as requested: No absolute value
+// Positive dish_depth means cutting DOWN into the object
 sphere_center_y = y_surf_at_pos + dish_radius + dish_depth;
 
 
@@ -122,7 +124,9 @@ difference() {
       translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
         constructive_wedge_solid(block_width, rounding_r);
     }
-    sphere(r=rounding_r, $fn=12);
+    // SMOOTHING UPGRADE: Increased resolution for the rounding sphere
+    // $fn=40 ensures the rounded edges are smooth, not faceted.
+    sphere(r=rounding_r, $fn=40);
   }
 
   // 2. NEGATIVE CUTS
@@ -148,7 +152,7 @@ difference() {
     translate([0, 0, -block_width])
       cylinder(r=back_edge_round_r, h=block_width*2);
 
-  translate([0, arm_thickness + wall_thickness*2 + h_taper_base + back_edge_round_r, 0])
+  translate([0, arm_thickness + wall_thickness + h_taper_base + back_edge_round_r, 0])
     rotate([0, 90, 0])
     cylinder(r=back_edge_round_r, h=block_width*2, center=true);
 
@@ -192,15 +196,6 @@ module aligned_storage_cutout(w, slot_center_y) {
   // Ceiling is Slot Floor - Floor Thickness
   ceiling_center_y = slot_center_y - magsafe_slot_thickness/2 - slot_floor_thickness;
 
-  // LIP LOGIC:
-  // To create a lip, we stop the void slightly before the front face.
-  // The "front face" is at mount_length.
-  // We want the void to be cut all the way, BUT we want to add a small wall at the bottom front.
-  // Or simpler: We just don't cut the bottom 1mm at the front.
-
-  // Since we are subtracting this shape, if we want a lip, we REMOVE that part of the subtraction shape.
-  // We can subtract a "Lip Block" from the "Void Shape" before using it to cut the main body.
-
   difference() {
     // 1. The Main Void Shape
     hull() {
@@ -222,13 +217,9 @@ module aligned_storage_cutout(w, slot_center_y) {
     // 3. Floor Protection
     translate([0, 0, 0]) cube([w*2, wall_thickness*2, mount_length*2], center=true);
 
-    // 4. THE LIP (New)
-    // We protect a small block at the bottom front of the void.
-    // This effectively "uncuts" the void at that spot, leaving plastic.
-    translate([0, 0, mount_length - 2]) // At the very front
+    // 4. THE LIP
+    translate([0, 0, mount_length - 2])
       cube([w*2, (wall_thickness + storage_lip_height)*2, 5], center=true);
-      // Center is Y=0. Height covers 2*(wall + lip).
-      // Since void starts at Y=wall, this covers up to Y=wall+lip. Correct.
   }
 }
 
