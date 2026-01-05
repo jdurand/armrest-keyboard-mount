@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+#
+# Build script for armrest mount STL files
+# Uses OpenSCAD to render high-resolution STL output
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+SRC_FILE="$PROJECT_DIR/src/armrest_mount.scad"
+BUILD_DIR="$PROJECT_DIR/build"
+
+# Defaults
+FN_RESOLUTION=150
+SIDES="both"
+STORAGE="true"
+ANGLE=""
+WIDTH=""
+THICKNESS=""
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Build armrest mount STL files using OpenSCAD.
+
+Options:
+  -s, --side SIDE       Which side to build: left, right, or both (default: both)
+  -S, --storage         Enable storage compartment (default)
+  -n, --no-storage      Disable storage compartment
+  -a, --angle DEGREES   Tenting angle in degrees (default: 20)
+  -w, --width MM        Armrest width in mm (default: 96.0)
+  -t, --thickness MM    Armrest thickness in mm (default: 24.8)
+  -r, --resolution N    Set \$fn resolution (default: 150)
+  -h, --help            Show this help message
+
+Defaults are configured for the Flexispot C7 Pro Max chair armrests.
+
+Examples:
+  $(basename "$0")                    # Build both sides with storage
+  $(basename "$0") -s right           # Build only right side with storage
+  $(basename "$0") -s left -n         # Build left side without storage
+  $(basename "$0") -a 15              # Build both sides with 15 degree tenting
+  $(basename "$0") -w 90 -t 25        # Custom armrest dimensions
+  $(basename "$0") -s right -a 20 -n  # Right side, 20 degrees, no storage
+EOF
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -s|--side)
+      SIDES="$2"
+      shift 2
+      ;;
+    -S|--storage)
+      STORAGE="true"
+      shift
+      ;;
+    -n|--no-storage)
+      STORAGE="false"
+      shift
+      ;;
+    -a|--angle)
+      ANGLE="$2"
+      shift 2
+      ;;
+    -w|--width)
+      WIDTH="$2"
+      shift 2
+      ;;
+    -t|--thickness)
+      THICKNESS="$2"
+      shift 2
+      ;;
+    -r|--resolution)
+      FN_RESOLUTION="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      ;;
+  esac
+done
+
+# Validate side option
+if [[ "$SIDES" != "left" && "$SIDES" != "right" && "$SIDES" != "both" ]]; then
+  echo "Error: --side must be 'left', 'right', or 'both'"
+  exit 1
+fi
+
+# Create build directory if it doesn't exist
+mkdir -p "$BUILD_DIR"
+
+echo "Building armrest mount STL files..."
+echo "Source: $SRC_FILE"
+echo "Output: $BUILD_DIR"
+echo "Resolution: \$fn=$FN_RESOLUTION"
+echo "Side(s): $SIDES"
+echo "Storage: $STORAGE"
+[[ -n "$ANGLE" ]] && echo "Angle: ${ANGLE}°"
+[[ -n "$WIDTH" ]] && echo "Width: ${WIDTH}mm"
+[[ -n "$THICKNESS" ]] && echo "Thickness: ${THICKNESS}mm"
+echo ""
+
+build_variant() {
+  local side="$1"
+  local is_right="$2"
+
+  # Build filename
+  local filename="armrest_mount_${side}"
+  [[ "$STORAGE" == "true" ]] && filename="${filename}_storage"
+  [[ -n "$ANGLE" ]] && filename="${filename}_${ANGLE}deg"
+  filename="${filename}.stl"
+
+  echo "Building ${side} armrest..."
+
+  local cmd=(openscad -o "$BUILD_DIR/$filename"
+    -D "is_right_armrest=$is_right"
+    -D "enable_storage=$STORAGE"
+    -D "preview_context=false"
+    -D "\$fn=$FN_RESOLUTION")
+
+  [[ -n "$ANGLE" ]] && cmd+=(-D "tenting_angle=$ANGLE")
+  [[ -n "$WIDTH" ]] && cmd+=(-D "arm_width=$WIDTH")
+  [[ -n "$THICKNESS" ]] && cmd+=(-D "arm_thickness=$THICKNESS")
+
+  "${cmd[@]}" "$SRC_FILE"
+  echo "  -> $filename"
+}
+
+# Build requested variants
+if [[ "$SIDES" == "both" || "$SIDES" == "right" ]]; then
+  build_variant "right" "true"
+fi
+
+if [[ "$SIDES" == "both" || "$SIDES" == "left" ]]; then
+  build_variant "left" "false"
+fi
+
+echo ""
+echo "Build complete! Files in $BUILD_DIR:"
+ls -lh "$BUILD_DIR"/*.stl 2>/dev/null || echo "(no STL files found)"

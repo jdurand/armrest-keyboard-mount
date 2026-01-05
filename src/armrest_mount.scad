@@ -43,7 +43,7 @@ taper_front_chamfer = 12.0;
 
 /* [Preview] */
 preview_context = true;
-$fn = 100;
+$fn = 50;
 
 // -------------------------------------------------
 // GLOBAL GEOMETRY CALCULATIONS
