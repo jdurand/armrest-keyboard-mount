@@ -174,14 +174,27 @@ difference() {
       clamp_armrest_channel_profile(arm_width_front);
   }
 
-  // A2. The Lip Gap (hulled with taper to match walls, lips stay constant thickness)
-  hull() {
-    translate([0, 0, -5])
-      linear_extrude(height = 0.1)
-      clamp_lip_gap_profile(arm_width_back);
-    translate([0, 0, mount_length + 15])
-      linear_extrude(height = 0.1)
-      clamp_lip_gap_profile(arm_width_front);
+  // A2. The Lip Gap (tapered with convex lip inner faces)
+  // Circle subtractions create concave sides, leaving convex bulges on the lips
+  translate([0, 0, -5])
+    linear_extrude(height = mount_length + 20)
+    clamp_lip_gap_profile(arm_width_back);
+
+  // A2b. Taper the lip gap sides to match the wall taper
+  gap_back = arm_width_back + fit_tolerance - 2*lip_width;
+  gap_front = arm_width_front + fit_tolerance - 2*lip_width;
+  gap_diff = (gap_back - gap_front) / 2;
+  h_outer_cut = arm_thickness + (wall_thickness * 2) + fit_tolerance;
+  if (gap_diff > 0) {
+    // Cut triangular prisms on each side to taper the gap
+    for (side = [-1, 1]) {
+      hull() {
+        translate([side * gap_back/2, -h_outer_cut/2 - 5, -5])
+          cube([0.1, wall_thickness + 10, 0.1]);
+        translate([side * gap_front/2, -h_outer_cut/2 - 5, mount_length + 15])
+          cube([0.1, wall_thickness + 10, 0.1]);
+      }
+    }
   }
 
   // B. The MagSafe Slot (ALIGNED)
@@ -325,15 +338,38 @@ module clamp_armrest_channel_profile(width) {
     square([w_inner, h_inner]);
 }
 
-// Lip gap only (for straight extrude)
+// Lip gap only (for tapered hull)
+// Semicircle subtractions create convex bulges on lip inner faces
+// Flat edge connects to wall, curved edge faces inward
 module clamp_lip_gap_profile(width) {
   w_outer = width + (wall_thickness * 2) + fit_tolerance;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
   w_inner = width + fit_tolerance;
   gap_width = w_inner - (2 * lip_width);
   cut_height = wall_thickness + 10;
-  translate([-gap_width/2, -h_outer/2 - 5])
-    square([gap_width, cut_height]);
+  lip_bulge_r = wall_thickness / 2;  // Radius for convex lip ends
+  gap_center_y = -h_outer/2 - 5 + cut_height/2;  // Vertical center of gap
+  // Overlap amount to ensure solid connection (no gaps)
+  overlap = 0.5;
+  difference() {
+    translate([-gap_width/2, -h_outer/2 - 5])
+      square([gap_width, cut_height]);
+    // Subtract semicircles from sides - flat edge at wall, curved edge inward
+    // Right side: semicircle facing left (curved side toward center)
+    translate([gap_width/2 + overlap, gap_center_y])
+      intersection() {
+        circle(r=lip_bulge_r, $fn=30);
+        translate([-lip_bulge_r - overlap, -lip_bulge_r])
+          square([lip_bulge_r + overlap, lip_bulge_r * 2]);
+      }
+    // Left side: semicircle facing right (curved side toward center)
+    translate([-gap_width/2 - overlap, gap_center_y])
+      intersection() {
+        circle(r=lip_bulge_r, $fn=30);
+        translate([0, -lip_bulge_r])
+          square([lip_bulge_r + overlap, lip_bulge_r * 2]);
+      }
+  }
 }
 
 // -------------------------------------------------
