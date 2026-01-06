@@ -19,7 +19,7 @@ ANGLE=""
 WIDTH=""
 WIDTH_FRONT=""
 THICKNESS=""
-BUILD_COVER="false"
+BUILD_MODE="all"  # all, mount, cover
 
 usage() {
   cat <<EOF
@@ -31,7 +31,8 @@ Options:
   -s, --side SIDE       Which side to build: left, right, or both (default: both)
   -S, --storage         Enable storage compartment (default)
   -n, --no-storage      Disable storage compartment
-  -c, --cover           Build front cover piece instead of main mount
+  -m, --mount-only      Build only main mount pieces (no covers)
+  -c, --cover-only      Build only front cover pieces (no mounts)
   -a, --angle DEGREES   Tenting angle in degrees (default: 20)
   -w, --width MM        Armrest width at back/closed end in mm (default: 96.0)
   -f, --width-front MM  Armrest width at front/open end in mm (default: 93.0)
@@ -39,17 +40,17 @@ Options:
   -r, --resolution N    Set \$fn resolution (default: 150)
   -h, --help            Show this help message
 
+By default, builds both mounts and covers for the specified side(s).
 Defaults are configured for the Flexispot C7 Pro Max chair armrests.
 
 Examples:
-  $(basename "$0")                    # Build both sides with storage
-  $(basename "$0") -s right           # Build only right side with storage
-  $(basename "$0") -s left -n         # Build left side without storage
-  $(basename "$0") -a 15              # Build both sides with 15 degree tenting
+  $(basename "$0")                    # Build all 4 pieces (both sides, mounts + covers)
+  $(basename "$0") -s right           # Build right mount and right cover
+  $(basename "$0") -m                 # Build only mounts (no covers)
+  $(basename "$0") -c                 # Build only covers (no mounts)
+  $(basename "$0") -s left -n         # Build left mount and cover without storage
+  $(basename "$0") -a 15              # Build all with 15 degree tenting
   $(basename "$0") -w 90 -t 25        # Custom armrest dimensions
-  $(basename "$0") -w 96 -f 93        # Tapered armrest (93mm front, 96mm back)
-  $(basename "$0") -s right -a 20 -n  # Right side, 20 degrees, no storage
-  $(basename "$0") -c -s right        # Build front cover for right side
 EOF
   exit 0
 }
@@ -68,8 +69,12 @@ while [[ $# -gt 0 ]]; do
       STORAGE="false"
       shift
       ;;
-    -c|--cover)
-      BUILD_COVER="true"
+    -m|--mount-only)
+      BUILD_MODE="mount"
+      shift
+      ;;
+    -c|--cover-only)
+      BUILD_MODE="cover"
       shift
       ;;
     -a|--angle)
@@ -117,21 +122,22 @@ echo "Output: $BUILD_DIR"
 echo "Resolution: \$fn=$FN_RESOLUTION"
 echo "Side(s): $SIDES"
 echo "Storage: $STORAGE"
+echo "Building: $BUILD_MODE"
 [[ -n "$ANGLE" ]] && echo "Angle: ${ANGLE}°"
 if [[ -n "$WIDTH" || -n "$WIDTH_FRONT" ]]; then
   echo "Width: ${WIDTH_FRONT:-93.0}mm (front) → ${WIDTH:-96.0}mm (back)"
 fi
 [[ -n "$THICKNESS" ]] && echo "Thickness: ${THICKNESS}mm"
-[[ "$BUILD_COVER" == "true" ]] && echo "Building: Front cover"
 echo ""
 
-build_variant() {
+build_piece() {
   local side="$1"
   local is_right="$2"
+  local is_cover="$3"
 
   # Build filename
   local filename
-  if [[ "$BUILD_COVER" == "true" ]]; then
+  if [[ "$is_cover" == "true" ]]; then
     filename="armrest_cover_${side}"
   else
     filename="armrest_mount_${side}"
@@ -140,17 +146,22 @@ build_variant() {
   [[ -n "$ANGLE" ]] && filename="${filename}_${ANGLE}deg"
   filename="${filename}.stl"
 
-  if [[ "$BUILD_COVER" == "true" ]]; then
+  if [[ "$is_cover" == "true" ]]; then
     echo "Building ${side} front cover..."
   else
-    echo "Building ${side} armrest..."
+    echo "Building ${side} mount..."
   fi
+
+  # When building cover, set render_main=false so only cover is in STL
+  local render_main="true"
+  [[ "$is_cover" == "true" ]] && render_main="false"
 
   local cmd=(openscad -o "$BUILD_DIR/$filename"
     -D "is_right_armrest=$is_right"
     -D "enable_storage=$STORAGE"
     -D "preview_context=false"
-    -D "render_cover=$BUILD_COVER"
+    -D "render_main=$render_main"
+    -D "render_cover=$is_cover"
     -D "\$fn=$FN_RESOLUTION")
 
   [[ -n "$ANGLE" ]] && cmd+=(-D "tenting_angle=$ANGLE")
@@ -163,12 +174,24 @@ build_variant() {
 }
 
 # Build requested variants
-if [[ "$SIDES" == "both" || "$SIDES" == "right" ]]; then
-  build_variant "right" "true"
+# Order: all mounts first, then all covers
+
+if [[ "$BUILD_MODE" == "all" || "$BUILD_MODE" == "mount" ]]; then
+  if [[ "$SIDES" == "both" || "$SIDES" == "right" ]]; then
+    build_piece "right" "true" "false"
+  fi
+  if [[ "$SIDES" == "both" || "$SIDES" == "left" ]]; then
+    build_piece "left" "false" "false"
+  fi
 fi
 
-if [[ "$SIDES" == "both" || "$SIDES" == "left" ]]; then
-  build_variant "left" "false"
+if [[ "$BUILD_MODE" == "all" || "$BUILD_MODE" == "cover" ]]; then
+  if [[ "$SIDES" == "both" || "$SIDES" == "right" ]]; then
+    build_piece "right" "true" "true"
+  fi
+  if [[ "$SIDES" == "both" || "$SIDES" == "left" ]]; then
+    build_piece "left" "false" "true"
+  fi
 fi
 
 echo ""

@@ -43,7 +43,8 @@ taper_back_chamfer = 35.0;
 taper_front_chamfer = 12.0;
 
 /* [Front Cover] */
-render_cover = false;  // Set to true to render the front cover instead of main piece
+render_main = true;    // Set to false to hide main piece (used by build script for cover-only STL)
+render_cover = false;  // Set to true to render the front cover
 cover_forward_depth = 10.0;  // How far the cover extends forward past the main piece
 cover_taper_angle = 30.0;  // Forward taper angle for aesthetic finish
 
@@ -142,9 +143,10 @@ sphere_center_y = y_surf_at_pos + dish_radius + dish_depth;
 
 
 // -------------------------------------------------
-// MAIN ASSEMBLY
+// MAIN ASSEMBLY (renders when render_main = true)
 // -------------------------------------------------
 
+if (render_main) {
 difference() {
   // 1. POSITIVE BODY (Minkowski Rounded)
   minkowski() {
@@ -236,6 +238,7 @@ difference() {
       aligned_storage_cutout(slot_center_h_wedge);
   }
 }
+}  // end if (render_main)
 
 // -------------------------------------------------
 // FRONT COVER (renders when render_cover = true)
