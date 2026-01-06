@@ -17,6 +17,7 @@ SIDES="both"
 STORAGE="true"
 ANGLE=""
 WIDTH=""
+WIDTH_FRONT=""
 THICKNESS=""
 
 usage() {
@@ -30,7 +31,8 @@ Options:
   -S, --storage         Enable storage compartment (default)
   -n, --no-storage      Disable storage compartment
   -a, --angle DEGREES   Tenting angle in degrees (default: 20)
-  -w, --width MM        Armrest width in mm (default: 96.0)
+  -w, --width MM        Armrest width at back/closed end in mm (default: 96.0)
+  -f, --width-front MM  Armrest width at front/open end in mm (default: 93.0)
   -t, --thickness MM    Armrest thickness in mm (default: 24.8)
   -r, --resolution N    Set \$fn resolution (default: 150)
   -h, --help            Show this help message
@@ -43,6 +45,7 @@ Examples:
   $(basename "$0") -s left -n         # Build left side without storage
   $(basename "$0") -a 15              # Build both sides with 15 degree tenting
   $(basename "$0") -w 90 -t 25        # Custom armrest dimensions
+  $(basename "$0") -w 96 -f 93        # Tapered armrest (93mm front, 96mm back)
   $(basename "$0") -s right -a 20 -n  # Right side, 20 degrees, no storage
 EOF
   exit 0
@@ -68,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -w|--width)
       WIDTH="$2"
+      shift 2
+      ;;
+    -f|--width-front)
+      WIDTH_FRONT="$2"
       shift 2
       ;;
     -t|--thickness)
@@ -104,7 +111,9 @@ echo "Resolution: \$fn=$FN_RESOLUTION"
 echo "Side(s): $SIDES"
 echo "Storage: $STORAGE"
 [[ -n "$ANGLE" ]] && echo "Angle: ${ANGLE}°"
-[[ -n "$WIDTH" ]] && echo "Width: ${WIDTH}mm"
+if [[ -n "$WIDTH" || -n "$WIDTH_FRONT" ]]; then
+  echo "Width: ${WIDTH_FRONT:-93.0}mm (front) → ${WIDTH:-96.0}mm (back)"
+fi
 [[ -n "$THICKNESS" ]] && echo "Thickness: ${THICKNESS}mm"
 echo ""
 
@@ -127,7 +136,8 @@ build_variant() {
     -D "\$fn=$FN_RESOLUTION")
 
   [[ -n "$ANGLE" ]] && cmd+=(-D "tenting_angle=$ANGLE")
-  [[ -n "$WIDTH" ]] && cmd+=(-D "arm_width=$WIDTH")
+  [[ -n "$WIDTH" ]] && cmd+=(-D "arm_width_back=$WIDTH")
+  [[ -n "$WIDTH_FRONT" ]] && cmd+=(-D "arm_width_front=$WIDTH_FRONT")
   [[ -n "$THICKNESS" ]] && cmd+=(-D "arm_thickness=$THICKNESS")
 
   "${cmd[@]}" "$SRC_FILE"

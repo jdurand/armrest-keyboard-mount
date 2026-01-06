@@ -2,7 +2,8 @@
 // -------------------------------------------------
 
 /* [Armrest Dimensions] */
-arm_width = 96.0;
+arm_width_back = 96.0;
+arm_width_front = 93.0;  // Set equal to arm_width_back if armrest has uniform width
 arm_thickness = 24.8;
 lip_width = 5.0;
 fit_tolerance = 0.5;
@@ -59,7 +60,16 @@ $fn = 50;
 // Left Armrest needs RIGHT side HIGH. This is a POSITIVE rotation (Counter-Clockwise).
 rotation_val = is_right_armrest ? tenting_angle : -tenting_angle;
 
-block_width = arm_width + 2*wall_thickness + fit_tolerance;
+// Width calculations (support tapered armrest)
+// Z=0 is back of mount (against chair), Z=mount_length is front (open end)
+function arm_width_at_z(z) =
+  let(ratio = min(1, max(0, z / mount_length)))
+  arm_width_back + (arm_width_front - arm_width_back) * ratio;
+
+function block_width_at_z(z) = arm_width_at_z(z) + 2*wall_thickness + fit_tolerance;
+
+// Use back (widest) width for wedge height calculations
+block_width = arm_width_back + 2*wall_thickness + fit_tolerance;
 
 // Slot Geometry
 slot_half_w = magsafe_slot_width / 2;
@@ -134,23 +144,45 @@ difference() {
   // 1. POSITIVE BODY (Minkowski Rounded)
   minkowski() {
     union() {
-      // A. Clamp Base Solid
-      linear_extrude(height = mount_length - 2*rounding_r)
-        translate([0,0])
-        clamp_outer_profile(rounding_r);
+      // A. Clamp Base Solid (hulled for tapered width)
+      // Z=0 is back (wider), Z=mount_length is front (narrower)
+      hull() {
+        translate([0, 0, 0])
+          linear_extrude(height = 0.1)
+          clamp_outer_profile(rounding_r, arm_width_back);
+        translate([0, 0, mount_length - 2*rounding_r])
+          linear_extrude(height = 0.1)
+          clamp_outer_profile(rounding_r, arm_width_front);
+      }
       // B. Integrated Tapered Wedge
       translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
-        constructive_wedge_solid(block_width, rounding_r);
+        constructive_wedge_solid(rounding_r);
     }
     sphere(r=rounding_r, $fn=40);
   }
 
   // 2. NEGATIVE CUTS
 
-  // A. The Armrest Channel
-  translate([0, 0, -5])
-    linear_extrude(height = mount_length + 20)
-      clamp_inner_cut_profile();
+  // A. The Armrest Channel (hulled for tapered width)
+  // Z=0 is back (wider), Z=mount_length is front (narrower)
+  hull() {
+    translate([0, 0, -5])
+      linear_extrude(height = 0.1)
+      clamp_armrest_channel_profile(arm_width_back);
+    translate([0, 0, mount_length + 15])
+      linear_extrude(height = 0.1)
+      clamp_armrest_channel_profile(arm_width_front);
+  }
+
+  // A2. The Lip Gap (hulled with taper to match walls, lips stay constant thickness)
+  hull() {
+    translate([0, 0, -5])
+      linear_extrude(height = 0.1)
+      clamp_lip_gap_profile(arm_width_back);
+    translate([0, 0, mount_length + 15])
+      linear_extrude(height = 0.1)
+      clamp_lip_gap_profile(arm_width_front);
+  }
 
   // B. The MagSafe Slot (ALIGNED)
   // Using rotation_val (which is now correctly negative for Right Armrest)
@@ -183,7 +215,7 @@ difference() {
   // F. **OPTIONAL STORAGE COMPARTMENT**
   if (enable_storage) {
     translate([0, arm_thickness/2 + wall_thickness + fit_tolerance/2, 0])
-      aligned_storage_cutout(block_width, slot_center_h_wedge);
+      aligned_storage_cutout(slot_center_h_wedge);
   }
 }
 
@@ -192,36 +224,48 @@ difference() {
 // MODULES
 // -------------------------------------------------
 
-module constructive_wedge_solid(w, r) {
+module constructive_wedge_solid(r) {
   taper_len_local = mount_length - magsafe_slot_depth;
+  w_back = block_width_at_z(0);
+  w_taper_end = block_width_at_z(taper_len_local);
+  w_front = block_width_at_z(mount_length);
   hull() {
     translate([0,0,0])
       linear_extrude(0.1)
-      wedge_chamfered_profile(w, h_left_taper, h_right_taper, r, taper_back_chamfer);
+      wedge_chamfered_profile(w_back, h_left_taper, h_right_taper, r, taper_back_chamfer);
 
     translate([0,0, taper_len_local - 2*r])
       linear_extrude(0.1)
-      wedge_chamfered_profile(w, h_left_safe, h_right_safe, r, taper_front_chamfer);
+      wedge_chamfered_profile(w_taper_end, h_left_safe, h_right_safe, r, taper_front_chamfer);
   }
-  translate([0,0, taper_len_local - 2*r])
-    linear_extrude(height = magsafe_slot_depth)
-    wedge_chamfered_profile(w, h_left_safe, h_right_safe, r, taper_front_chamfer);
+  // Front section (MagSafe area) - hull to handle width change
+  hull() {
+    translate([0,0, taper_len_local - 2*r])
+      linear_extrude(0.1)
+      wedge_chamfered_profile(w_taper_end, h_left_safe, h_right_safe, r, taper_front_chamfer);
+    translate([0,0, mount_length - 2*r])
+      linear_extrude(0.1)
+      wedge_chamfered_profile(w_front, h_left_safe, h_right_safe, r, taper_front_chamfer);
+  }
 }
 
-module aligned_storage_cutout(w, slot_center_y) {
+module aligned_storage_cutout(slot_center_y) {
   storage_start_z = 10;
   ceiling_center_y = slot_center_y - magsafe_slot_thickness/2 - slot_floor_thickness;
+  w_storage_start = block_width_at_z(storage_start_z);
+  w_front = block_width_at_z(mount_length);
+  w_max = max(w_storage_start, w_front);
 
   difference() {
     // 1. The Main Void Shape
     hull() {
       translate([0,0, storage_start_z])
         linear_extrude(0.1)
-        wedge_chamfered_void_profile(w, h_left_taper, h_right_taper, taper_back_chamfer);
+        wedge_chamfered_void_profile(w_storage_start, h_left_taper, h_right_taper, taper_back_chamfer);
 
       translate([0,0, mount_length])
         linear_extrude(0.1)
-        wedge_chamfered_void_profile(w, h_left_safe, h_right_safe, taper_front_chamfer);
+        wedge_chamfered_void_profile(w_front, h_left_safe, h_right_safe, taper_front_chamfer);
     }
 
     // 2. Ceiling Protection
@@ -229,14 +273,14 @@ module aligned_storage_cutout(w, slot_center_y) {
     translate([0, ceiling_center_y, 0])
        rotate([0, 0, rotation_val])
        translate([0, 50, 0])
-       cube([w*2, 100, mount_length*3], center=true);
+       cube([w_max*2, 100, mount_length*3], center=true);
 
     // 3. Floor Protection
-    translate([0, 0, 0]) cube([w*2, wall_thickness*2, mount_length*2], center=true);
+    translate([0, 0, 0]) cube([w_max*2, wall_thickness*2, mount_length*2], center=true);
 
     // 4. THE LIP
     translate([0, 0, mount_length - 2])
-      cube([w*2, (wall_thickness + storage_lip_height)*2, 5], center=true);
+      cube([w_max*2, (wall_thickness + storage_lip_height)*2, 5], center=true);
   }
 }
 
@@ -266,20 +310,26 @@ module wedge_chamfered_profile(w, h_l, h_r, r, chamfer_sz) {
   ]);
 }
 
-module clamp_outer_profile(r) {
-  w_outer = arm_width + (wall_thickness * 2) + fit_tolerance - 2*r;
+module clamp_outer_profile(r, width) {
+  w_outer = width + (wall_thickness * 2) + fit_tolerance - 2*r;
   h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance - 2*r;
   translate([-w_outer/2, -h_outer/2])
     square([w_outer, h_outer]);
 }
 
-module clamp_inner_cut_profile() {
-  w_outer = arm_width + (wall_thickness * 2) + fit_tolerance;
-  h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
-  w_inner = arm_width + fit_tolerance;
+// Armrest channel only (for tapered hull)
+module clamp_armrest_channel_profile(width) {
+  w_inner = width + fit_tolerance;
   h_inner = arm_thickness + fit_tolerance;
   translate([-w_inner/2, -h_inner/2])
     square([w_inner, h_inner]);
+}
+
+// Lip gap only (for straight extrude)
+module clamp_lip_gap_profile(width) {
+  w_outer = width + (wall_thickness * 2) + fit_tolerance;
+  h_outer = arm_thickness + (wall_thickness * 2) + fit_tolerance;
+  w_inner = width + fit_tolerance;
   gap_width = w_inner - (2 * lip_width);
   cut_height = wall_thickness + 10;
   translate([-gap_width/2, -h_outer/2 - 5])
@@ -290,9 +340,14 @@ module clamp_inner_cut_profile() {
 // PREVIEW
 // -------------------------------------------------
 if (preview_context) {
+  // Tapered armrest preview (Z=0 is back/wider, Z=mount_length is front/narrower)
   %color("Silver", 0.4)
-  translate([-(arm_width)/2, -(arm_thickness)/2, -10])
-    cube([arm_width, arm_thickness, mount_length + 20]);
+  hull() {
+    translate([-(arm_width_back)/2, -(arm_thickness)/2, -10])
+      cube([arm_width_back, arm_thickness, 0.1]);
+    translate([-(arm_width_front)/2, -(arm_thickness)/2, mount_length + 10])
+      cube([arm_width_front, arm_thickness, 0.1]);
+  }
 
   %color("FireBrick", 0.8)
   translate([0, slot_z_wedge, mount_length - magsafe_slot_depth/2])
