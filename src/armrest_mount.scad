@@ -42,6 +42,11 @@ back_edge_round_r = 5.0;
 taper_back_chamfer = 35.0;
 taper_front_chamfer = 12.0;
 
+/* [Front Cover] */
+render_cover = false;  // Set to true to render the front cover instead of main piece
+cover_forward_depth = 10.0;  // How far the cover extends forward past the main piece
+cover_taper_angle = 30.0;  // Forward taper angle for aesthetic finish
+
 /* [Preview] */
 preview_context = true;
 $fn = 50;
@@ -232,10 +237,74 @@ difference() {
   }
 }
 
+// -------------------------------------------------
+// FRONT COVER (renders when render_cover = true)
+// -------------------------------------------------
+
+if (render_cover) {
+  front_cover();
+}
 
 // -------------------------------------------------
 // MODULES
 // -------------------------------------------------
+
+module front_cover() {
+  // Simple front cover/cap that glues onto the front face of the wedge
+  w_front = block_width_at_z(mount_length);
+  cover_base_y = arm_thickness/2 + wall_thickness + fit_tolerance/2;
+
+  // Taper inset - how much the front face shrinks on each edge
+  front_taper_inset = cover_forward_depth * tan(cover_taper_angle);
+
+  // Position at front of mount
+  translate([0, 0, mount_length])
+  difference() {
+    // 1. POSITIVE: The cover body
+    translate([0, cover_base_y, 0])
+    hull() {
+      // Back face - matches front of main piece exactly
+      linear_extrude(0.1)
+        wedge_chamfered_profile(w_front, h_left_safe, h_right_safe, rounding_r, taper_front_chamfer);
+
+      // Front face - tapered inward from all sides
+      translate([0, front_taper_inset, cover_forward_depth])
+        linear_extrude(0.1)
+        wedge_chamfered_profile(
+          w_front - 2*front_taper_inset,     // Narrower (left & right taper)
+          h_left_safe - front_taper_inset,   // Lower left
+          h_right_safe - front_taper_inset,  // Lower right
+          rounding_r,
+          taper_front_chamfer - front_taper_inset  // Smaller chamfer
+        );
+    }
+
+    // 2. NEGATIVE: MagSafe slot opening
+    translate([0, cover_base_y + slot_center_h_wedge, cover_forward_depth/2])
+      rotate([0, 0, rotation_val])
+      cube([magsafe_slot_width, magsafe_slot_thickness, cover_forward_depth + 10], center=true);
+
+    // 3. NEGATIVE: Storage compartment opening (if enabled)
+    // Matches the triangular opening of the main piece's storage compartment
+    if (enable_storage) {
+      ceiling_y = slot_center_h_wedge - magsafe_slot_thickness/2 - slot_floor_thickness;
+      difference() {
+        // The full wedge void shape
+        translate([0, cover_base_y, -1])
+          linear_extrude(cover_forward_depth + 10)
+          wedge_chamfered_void_profile(w_front, h_left_safe, h_right_safe, taper_front_chamfer);
+        // Protect everything above the ceiling (same as main piece)
+        translate([0, cover_base_y + ceiling_y, 0])
+          rotate([0, 0, rotation_val])
+          translate([0, 50, cover_forward_depth/2])
+          cube([w_front*2, 100, cover_forward_depth + 20], center=true);
+        // Protect the floor
+        translate([0, cover_base_y, cover_forward_depth/2])
+          cube([w_front*2, wall_thickness*2, cover_forward_depth + 20], center=true);
+      }
+    }
+  }
+}
 
 module constructive_wedge_solid(r) {
   taper_len_local = mount_length - magsafe_slot_depth;
